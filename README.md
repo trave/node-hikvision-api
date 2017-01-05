@@ -11,18 +11,18 @@ NodeJS Module for communication with Hikvision IP Cameras.
 ## Example:
 ```javascript
 #!/usr/bin/nodejs
-var     ipcamera	= require('node-hikvision-api');
+var HikvisionAPI = require('node-hikvision-api');
 
 // Options:
 var options = {
-	host	: '192.168.1.100',
-	port 	: '80',
-	user 	: 'admin',
-	pass 	: 'password123',
-	log 	: false,
+	host: '192.168.1.100',
+	port: '80',
+	user: 'admin',
+	pass: 'password123',
+	log: false,
 };
 
-var hikvision 	= new ipcamera.hikvision(options);
+var hikvision = new HikvisionAPI(options);
 
 // Switch to Day Profile
 hikvision.nightProfile()
@@ -48,14 +48,14 @@ function getDateTime() {
 	var date = new Date();
 	var hour = date.getHours();
 	hour = (hour < 10 ? "0" : "") + hour;
-	var min  = date.getMinutes();
+	var min = date.getMinutes();
 	min = (min < 10 ? "0" : "") + min;
-	var sec  = date.getSeconds();
+	var sec = date.getSeconds();
 	sec = (sec < 10 ? "0" : "") + sec;
 	var year = date.getFullYear();
 	var month = date.getMonth() + 1;
 	month = (month < 10 ? "0" : "") + month;
-	var day  = date.getDate();
+	var day = date.getDate();
 	day = (day < 10 ? "0" : "") + day;
 	return year + "-" + month + "-" + day + " " + hour + ":" + min + ":" + sec;
 }

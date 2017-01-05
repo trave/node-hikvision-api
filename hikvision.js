@@ -12,7 +12,7 @@ let BASEURI = false;
 const parser = new xml2js.Parser();
 
 // hikvision HTTP API Module
-class Hikvision extends events.EventEmitter {
+class HikvisionAPI extends events.EventEmitter {
 	constructor(options) {
 		super();
 
@@ -313,4 +313,4 @@ class Hikvision extends events.EventEmitter {
 }
 
 
-exports.hikvision = Hikvision;
+module.exports = HikvisionAPI;

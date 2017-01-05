@@ -6,21 +6,15 @@ const NetKeepAlive = require('net-keepalive');
 const xml2js = require('xml2js');
 
 
-// Define Globals
-let TRACE = false;
-let BASEURI = false;
-const parser = new xml2js.Parser();
-
 // hikvision HTTP API Module
 class HikvisionAPI extends events.EventEmitter {
 	constructor(options) {
 		super();
 
 		this.client = this.connect(options)
-		if (options.log) {
-			TRACE = options.log;
-		}
-		BASEURI = `http://${options.host}:${options.port}`;
+		this._log = !!options.log;
+		this._baseUrl = `http://${options.host}:${options.port}`;
+		this._parser = new xml2js.Parser();
 		this.activeEvents = {};
 		this.triggerActive = false;
 
@@ -43,9 +37,7 @@ class HikvisionAPI extends events.EventEmitter {
 			// 60s and kill the connection.
 			NetKeepAlive.setKeepAliveProbes(client, 12);
 
-			if (TRACE) {
-				console.log(`Connected to ${options.host}:${options.port}`);
-			}
+			this.log(`Connected to ${options.host}:${options.port}`);
 			// this.socket = socket;
 			this.emit('connect');
 		});
@@ -59,9 +51,7 @@ class HikvisionAPI extends events.EventEmitter {
 			setTimeout(() => {
 				this.connect(options);
 			}, 30000);
-			if (TRACE) {
-				console.log('Connection closed!');
-			}
+			this.log('Connection closed!');
 			this.emit('end');
 		});
 
@@ -139,9 +129,7 @@ class HikvisionAPI extends events.EventEmitter {
 		if (!availableDirections.contains(direction)) {
 			const err = `INVALID PTZ DIRECTION: ${direction}`;
 			this.emit('error', err);
-			if (TRACE) {
-				console.log(err);
-			}
+			this.log(err);
 			return Promise.reject(err);
 		}
 
@@ -153,16 +141,12 @@ class HikvisionAPI extends events.EventEmitter {
 		this.request(this.POINT.PTZ, {action: 'getStatus'})
 			.then((error, response, body) => {
 				body = body.toString().split('\r\n').trim()
-				if (TRACE) {
-					console.log(`PTZ STATUS: ${body}`);
-				}
+				this.log(`PTZ STATUS: ${body}`);
 				this.emit('ptzStatus', body);
 			})
 			.catch((err) => {
 				this.emit('error', 'FAILED TO QUERY STATUS');
-				if (TRACE) {
-					console.log('FAILED TO QUERY STATUS');
-				}
+				this.log('FAILED TO QUERY STATUS');
 			});
 	}
 
@@ -183,9 +167,7 @@ class HikvisionAPI extends events.EventEmitter {
 			})
 			.catch((err) => {
 				this.emit('error', 'FAILED TO CHANGE TO DAY PROFILE');
-				if (TRACE) {
-					console.log('FAILED TO CHANGE TO DAY PROFILE');
-				}
+				this.log('FAILED TO CHANGE TO DAY PROFILE');
 			});
 	}
 
@@ -206,22 +188,18 @@ class HikvisionAPI extends events.EventEmitter {
 			})
 			.catch((err) => {
 				this.emit('error', 'FAILED TO CHANGE TO NIGHT PROFILE');
-				if (TRACE) {
-					console.log('FAILED TO CHANGE TO NIGHT PROFILE');
-				}
+				this.log('FAILED TO CHANGE TO NIGHT PROFILE');
 			});
 	}
 
 	handleError(err) {
-		if (TRACE) {
-			console.log(`Connection error: ${err}`);
-		}
+		this.log(`Connection error: ${err}`);
 		this.emit('error', err);
 	}
 
 	// Handle alarms
 	handleData(data) {
-		parser.parseString(data, (err, result) => {
+		this._parser.parseString(data, (err, result) => {
 			if (result) {
 				let code = result['EventNotificationAlert']['eventType'][0];
 				let action = result['EventNotificationAlert']['eventState'][0];
@@ -254,9 +232,7 @@ class HikvisionAPI extends events.EventEmitter {
 						for (var i in this.activeEvents) {
 							if (this.activeEvents.hasOwnProperty(i)) {
 								var eventDetails = this.activeEvents[i]
-								if (TRACE) {
-									console.log(`Ending Event: ${i} - ${eventDetails['code']} - ${(Date.now() - eventDetails['lasttimestamp']) / 1000}`);
-								}
+								this.log(`Ending Event: ${i} - ${eventDetails['code']} - ${(Date.now() - eventDetails['lasttimestamp']) / 1000}`);
 								this.emit('alarm', eventDetails['code'], 'Stop', eventDetails['index']);
 							}
 						}
@@ -266,9 +242,7 @@ class HikvisionAPI extends events.EventEmitter {
 					} else {
 						// should be the most common result
 						// Nothing interesting happening and we haven't seen any events
-						if (TRACE) {
-							this.emit('alarm', code, action, index);
-						}
+						this.log('alarm', code, action, index);
 					}
 				}
 
@@ -286,9 +260,7 @@ class HikvisionAPI extends events.EventEmitter {
 
 					// known active events
 				} else {
-					if (TRACE) {
-						console.log(`    Skipped Event: ${code} ${action} ${index} ${count}`);
-					}
+					this.log(`    Skipped Event: ${code} ${action} ${index} ${count}`);
 
 					// Update lasttimestamp
 					var eventDetails = {};
@@ -303,9 +275,7 @@ class HikvisionAPI extends events.EventEmitter {
 						if (this.activeEvents.hasOwnProperty(i)) {
 							var eventDetails = this.activeEvents[i];
 							if (((Date.now() - eventDetails['lasttimestamp']) / 1000) > 2) {
-								if (TRACE) {
-									console.log(`    Ending Event: ${i} - ${eventDetails['code']} - ${(Date.now() - eventDetails['lasttimestamp']) / 1000}`);
-								}
+								this.log(`    Ending Event: ${i} - ${eventDetails['code']} - ${(Date.now() - eventDetails['lasttimestamp']) / 1000}`);
 								this.emit('alarm', eventDetails['code'], 'Stop', eventDetails['index']);
 								delete this.activeEvents[i];
 							}
@@ -322,7 +292,7 @@ class HikvisionAPI extends events.EventEmitter {
 				.map((...args) => args.map(encodeURIComponent).join('='))
 				.join('&');
 
-			request(`${BASEURI}${point}?${params}`, (error, response, body) => {
+			request(`${this._baseUrl}${point}?${params}`, (error, response, body) => {
 				if ((!error) && (response.statusCode === 200)) {
 					resolve(body.toString());
 				} else {
@@ -330,6 +300,12 @@ class HikvisionAPI extends events.EventEmitter {
 				}
 			})
 		});
+	}
+
+	log(...args) {
+		if (this._log) {
+			console.log(...args);
+		}
 	}
 }
 

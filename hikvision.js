@@ -17,6 +17,7 @@ class HikvisionAPI extends events.EventEmitter {
 		this._parser = new xml2js.Parser();
 		this._user = options.user;
 		this._password = options.pass;
+		this._host = options.host;
 		this.activeEvents = {};
 		this.triggerActive = false;
 
@@ -40,6 +41,14 @@ class HikvisionAPI extends events.EventEmitter {
 			.then((data) => {
 				return this.xml2object(data.toString());
 			});
+	}
+
+	getMainChannelRtspUrl() {
+		return `rtsp://${this._user}:${this._password}@${this._host}/Streaming/Channels/1`;
+	}
+
+	getSecondChannelRtspUrl() {
+		return `rtsp://${this._user}:${this._password}@${this._host}/Streaming/Channels/2`;
 	}
 
 	snapPicture() {

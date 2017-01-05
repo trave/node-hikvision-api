@@ -31,15 +31,27 @@ class HikvisionAPI extends events.EventEmitter {
 	getMainChannelInfo() {
 		return this.request(this.POINT.MAIN_CHANNEL)
 			.then((data) => {
-				return this.xml2object(data);
+				return this.xml2object(data.toString());
 			});
 	}
 
 	getSecondChannelInfo() {
 		return this.request(this.POINT.MAIN_CHANNEL)
 			.then((data) => {
-				return this.xml2object(data);
+				return this.xml2object(data.toString());
 			});
+	}
+
+	snapPicture() {
+		return this.request('/Streaming/channels/1/picture', {
+			encoding: 'binary'
+		});
+	}
+
+	snapPicture2() {
+		return this.request('/Streaming/channels/2/picture', {
+			encoding: 'binary'
+		});
 	}
 
 	// Attach to camera
@@ -84,9 +96,9 @@ class HikvisionAPI extends events.EventEmitter {
 	ptzCommand(cmd, arg1, arg2, arg3, arg4) {
 		if ((!cmd) || (isNaN(arg1)) || (isNaN(arg2)) || (isNaN(arg3)) || (isNaN(arg4))) {
 			this.handleError('INVALID PTZ COMMAND')
-			return 0
+			return 0;
 		}
-		return this.request(this.POINT.PTZ, {
+		return this.request(this.POINT.PTZ, {}, {
 				action: 'start',
 				channel: 0,
 				code: cmd,
@@ -96,7 +108,7 @@ class HikvisionAPI extends events.EventEmitter {
 				arg4: arg4
 			})
 			.then((responseBody) => {
-				if (responseBody.trim() !== 'OK') {
+				if (responseBody.toString().trim() !== 'OK') {
 					throw new Error(responseBody);
 				}
 			})
@@ -156,8 +168,8 @@ class HikvisionAPI extends events.EventEmitter {
 
 	// Request PTZ Status
 	ptzStatus() {
-		this.request(this.POINT.PTZ, {action: 'getStatus'})
-			.then((error, response, body) => {
+		this.request(this.POINT.PTZ, {}, {action: 'getStatus'})
+			.then((body) => {
 				body = body.toString().split('\r\n').trim()
 				this.log(`PTZ STATUS: ${body}`);
 				this.emit('ptzStatus', body);
@@ -169,14 +181,14 @@ class HikvisionAPI extends events.EventEmitter {
 
 	// Switch to Day Profile
 	dayProfile() {
-		this.request(this.POINT.CONFIG_MANAGER, {
+		this.request(this.POINT.CONFIG_MANAGER, {}, {
 				action: 'setConfig',
 				'VideoInMode[0].Config[0]': 1
 			})
 			.then((responseBody) => {
 				// Didnt work, lets try another method for older cameras
-				if (body === 'Error') {
-					return this.request(this.POINT.CONFIG_MANAGER, {
+				if (responseBody.toString() === 'Error') {
+					return this.request(this.POINT.CONFIG_MANAGER, {}, {
 						action: 'setConfig',
 						'VideoInOptions[0].NightOptions.SwitchMode': 0
 					});
@@ -189,14 +201,14 @@ class HikvisionAPI extends events.EventEmitter {
 
 	// Switch to Night Profile
 	nightProfile() {
-		this.request(this.POINT.CONFIG_MANAGER, {
+		this.request(this.POINT.CONFIG_MANAGER, {}, {
 				action: 'setConfig',
 				'VideoInMode[0].Config[0]': 2
 			})
 			.then((responseBody) => {
 				// Didnt work, lets try another method for older cameras
-				if (body === 'Error') {
-					return this.request(this.POINT.CONFIG_MANAGER, {
+				if (responseBody.toString() === 'Error') {
+					return this.request(this.POINT.CONFIG_MANAGER, {}, {
 						action: 'setConfig',
 						'VideoInOptions[0].NightOptions.SwitchMode': 3
 					});
@@ -297,28 +309,33 @@ class HikvisionAPI extends events.EventEmitter {
 						}
 					}
 				}
-			});
+			}, () => { /* ignore XML parsing errors */ });
 	}
 
-	request(point, data = {}) {
-		return new Promise((resolve, reject) => {
-			const params = Object.keys(data)
-				.map((k) => [k, data[k]]) // Object.entries
-				.map((pair) => `${pair[0]}=${encodeURIComponent(pair[1])}`)
-				.join('&');
+	request(point, options = {}, data = {}) {
+		const params = Object.keys(data)
+			.map((k) => [k, data[k]]) // Object.entries
+			.map((pair) => `${pair[0]}=${encodeURIComponent(pair[1])}`)
+			.join('&');
 
-			const url = `${this._baseUrl}${point}?${params}`;
-			request(url, {
-				headers: {
-					'Authorization': `Basic ${new Buffer(this._user + ':' + this._password).toString('base64')}`
-				}
-			}, (error, response, body) => {
-				if ((!error) && (response.statusCode === 200)) {
-					resolve(body.toString());
-				} else {
-					reject(error || new Error(`Status: ${response.statusCode} in ${url}`));
-				}
-			})
+		const url = `${this._baseUrl}${point}${params?'?':''}${params}`;
+		this.log(`Getting ${url}`);
+
+		return new Promise((resolve, reject) => {
+			request(
+				url,
+				Object.assign({
+					headers: {
+						'Authorization': `Basic ${new Buffer(this._user + ':' + this._password).toString('base64')}`
+					}
+				}, options),
+				(error, response, body) => {
+					if ((!error) && (response.statusCode === 200)) {
+						resolve(body);
+					} else {
+						reject(error || new Error(`Status: ${response.statusCode} in ${url}`));
+					}
+				});
 		});
 	}
 
@@ -331,8 +348,8 @@ class HikvisionAPI extends events.EventEmitter {
 	xml2object(xmlString) {
 		return new Promise((resolve, reject) => {
 			this._parser.parseString(xmlString, (err, result) => {
-				if (err) {
-					reject(err);
+				if (err || !result) {
+					reject(err || result);
 				} else {
 					resolve(result);
 				}

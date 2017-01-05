@@ -56,7 +56,7 @@ class HikvisionAPI extends events.EventEmitter {
 		});
 
 		client.on('error', (err) => {
-			this.handleError(err)
+			this.handleError(err);
 		});
 	}
 
@@ -81,7 +81,7 @@ class HikvisionAPI extends events.EventEmitter {
 				}
 			})
 			.catch((err) => {
-				this.emit('error', 'FAILED TO ISSUE PTZ COMMAND');
+				this.handleError(err, 'FAILED TO ISSUE PTZ COMMAND');
 			});
 	}
 
@@ -127,9 +127,7 @@ class HikvisionAPI extends events.EventEmitter {
 			'LeftUp','RightUp','LeftDown','RightDown'
 		];
 		if (!availableDirections.contains(direction)) {
-			const err = `INVALID PTZ DIRECTION: ${direction}`;
-			this.emit('error', err);
-			this.log(err);
+			this.handleError(err, `INVALID PTZ DIRECTION: ${direction}`);
 			return Promise.reject(err);
 		}
 
@@ -145,8 +143,7 @@ class HikvisionAPI extends events.EventEmitter {
 				this.emit('ptzStatus', body);
 			})
 			.catch((err) => {
-				this.emit('error', 'FAILED TO QUERY STATUS');
-				this.log('FAILED TO QUERY STATUS');
+				this.handleError(err, 'FAILED TO QUERY STATUS');
 			});
 	}
 
@@ -166,8 +163,7 @@ class HikvisionAPI extends events.EventEmitter {
 				}
 			})
 			.catch((err) => {
-				this.emit('error', 'FAILED TO CHANGE TO DAY PROFILE');
-				this.log('FAILED TO CHANGE TO DAY PROFILE');
+				this.handleError(err, 'FAILED TO CHANGE TO DAY PROFILE');
 			});
 	}
 
@@ -187,14 +183,13 @@ class HikvisionAPI extends events.EventEmitter {
 				}
 			})
 			.catch((err) => {
-				this.emit('error', 'FAILED TO CHANGE TO NIGHT PROFILE');
-				this.log('FAILED TO CHANGE TO NIGHT PROFILE');
+				this.handleError(err, 'FAILED TO CHANGE TO NIGHT PROFILE');
 			});
 	}
 
-	handleError(err) {
-		this.log(`Connection error: ${err}`);
-		this.emit('error', err);
+	handleError(err, humanMessage) {
+		this.log('Error:', err);
+		this.emit('error', humanMessage || err);
 	}
 
 	// Handle alarms

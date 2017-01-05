@@ -281,17 +281,20 @@ class HikvisionAPI extends events.EventEmitter {
 		});
 	}
 
-	request(point, data) {
+	request(point, data = {}) {
+		console.log('JSON', JSON.stringify(data));
 		return new Promise((resolve, reject) => {
-			const params = Object.entries(data || {})
-				.map((...args) => args.map(encodeURIComponent).join('='))
+			const params = Object.keys(data)
+				.map((k) => [k, data[k]]) // Object.entries
+				.map((pair) => `${pair[0]}=${encodeURIComponent(pair[1])}`)
 				.join('&');
 
-			request(`${this._baseUrl}${point}?${params}`, (error, response, body) => {
+			const url = `${this._baseUrl}${point}?${params}`;
+			request(url, (error, response, body) => {
 				if ((!error) && (response.statusCode === 200)) {
 					resolve(body.toString());
 				} else {
-					reject(error || response);
+					reject(error || new Error(`Status: ${response.statusCode} in ${url}`));
 				}
 			})
 		});

@@ -11,17 +11,35 @@ class HikvisionAPI extends events.EventEmitter {
 	constructor(options) {
 		super();
 
-		this.client = this.connect(options)
+		this.client = this.connect(options);
 		this._log = !!options.log;
 		this._baseUrl = `http://${options.host}:${options.port}`;
 		this._parser = new xml2js.Parser();
+		this._user = options.user;
+		this._password = options.pass;
 		this.activeEvents = {};
 		this.triggerActive = false;
 
 		this.POINT = {
 			PTZ: '/cgi-bin/ptz.cgi',
 			CONFIG_MANAGER: '/cgi-bin/configManager.cgi',
+			MAIN_CHANNEL: '/ISAPI/Streaming/channels/101',
+			SECOND_CHANNEL: '/ISAPI/Streaming/channels/102'
 		};
+	}
+
+	getMainChannelInfo() {
+		return this.request(this.POINT.MAIN_CHANNEL)
+			.then((data) => {
+				return this.xml2object(data);
+			});
+	}
+
+	getSecondChannelInfo() {
+		return this.request(this.POINT.MAIN_CHANNEL)
+			.then((data) => {
+				return this.xml2object(data);
+			});
 	}
 
 	// Attach to camera
@@ -58,6 +76,8 @@ class HikvisionAPI extends events.EventEmitter {
 		client.on('error', (err) => {
 			this.handleError(err);
 		});
+
+		return client;
 	}
 
 	// Raw PTZ Command - command/arg1/arg2/arg3/arg4
@@ -194,8 +214,8 @@ class HikvisionAPI extends events.EventEmitter {
 
 	// Handle alarms
 	handleData(data) {
-		this._parser.parseString(data, (err, result) => {
-			if (result) {
+		this.xml2object(data)
+			.then((result) => {
 				let code = result['EventNotificationAlert']['eventType'][0];
 				let action = result['EventNotificationAlert']['eventState'][0];
 				const index = parseInt(result['EventNotificationAlert']['channelID'][0]);
@@ -277,12 +297,10 @@ class HikvisionAPI extends events.EventEmitter {
 						}
 					}
 				}
-			}
-		});
+			});
 	}
 
 	request(point, data = {}) {
-		console.log('JSON', JSON.stringify(data));
 		return new Promise((resolve, reject) => {
 			const params = Object.keys(data)
 				.map((k) => [k, data[k]]) // Object.entries
@@ -290,7 +308,11 @@ class HikvisionAPI extends events.EventEmitter {
 				.join('&');
 
 			const url = `${this._baseUrl}${point}?${params}`;
-			request(url, (error, response, body) => {
+			request(url, {
+				headers: {
+					'Authorization': `Basic ${new Buffer(this._user + ':' + this._password).toString('base64')}`
+				}
+			}, (error, response, body) => {
 				if ((!error) && (response.statusCode === 200)) {
 					resolve(body.toString());
 				} else {
@@ -304,6 +326,18 @@ class HikvisionAPI extends events.EventEmitter {
 		if (this._log) {
 			console.log(...args);
 		}
+	}
+
+	xml2object(xmlString) {
+		return new Promise((resolve, reject) => {
+			this._parser.parseString(xmlString, (err, result) => {
+				if (err) {
+					reject(err);
+				} else {
+					resolve(result);
+				}
+			});
+		});
 	}
 }
 

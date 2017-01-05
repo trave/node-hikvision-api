@@ -170,9 +170,9 @@ class HikvisionAPI extends events.EventEmitter {
 	// Switch to Night Profile
 	nightProfile() {
 		this.request(this.POINT.CONFIG_MANAGER, {
-			action: 'setConfig',
-			'VideoInMode[0].Config[0]': 2
-		})
+				action: 'setConfig',
+				'VideoInMode[0].Config[0]': 2
+			})
 			.then((responseBody) => {
 				// Didnt work, lets try another method for older cameras
 				if (body === 'Error') {

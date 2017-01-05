@@ -23,6 +23,11 @@ class HikvisionAPI extends events.EventEmitter {
 		BASEURI = `http://${options.host}:${options.port}`;
 		this.activeEvents = {};
 		this.triggerActive = false;
+
+		this.POINT = {
+			PTZ: '/cgi-bin/ptz.cgi',
+			CONFIG_MANAGER: '/cgi-bin/configManager.cgi',
+		};
 	}
 
 	// Attach to camera
@@ -52,7 +57,7 @@ class HikvisionAPI extends events.EventEmitter {
 		client.on('close', () => {
 			// Try to reconnect after 30s
 			setTimeout(() => {
-				this.connect(options)
+				this.connect(options);
 			}, 30000);
 			if (TRACE) {
 				console.log('Connection closed!');
@@ -71,11 +76,23 @@ class HikvisionAPI extends events.EventEmitter {
 			this.handleError('INVALID PTZ COMMAND')
 			return 0
 		}
-		request(`${BASEURI}/cgi-bin/ptz.cgi?action=start&channel=0&code=${ptzcommand}&arg1=${arg1}&arg2=${arg2}&arg3=${arg3}&arg4=${arg4}`, (error, response, body) => {
-			if ((error) || (response.statusCode !== 200) || (body.trim() !== 'OK')) {
+		return this.request(this.POINT.PTZ, {
+				action: 'start',
+				channel: 0,
+				code: cmd,
+				arg1: arg1,
+				arg2: arg2,
+				arg3: arg3,
+				arg4: arg4
+			})
+			.then((responseBody) => {
+				if (responseBody.trim() !== 'OK') {
+					throw new Error(responseBody);
+				}
+			})
+			.catch((err) => {
 				this.emit('error', 'FAILED TO ISSUE PTZ COMMAND');
-			}
-		})
+			});
 	}
 
 	// PTZ Preset - number
@@ -83,11 +100,8 @@ class HikvisionAPI extends events.EventEmitter {
 		if (isNaN(preset)) {
 			this.handleError('INVALID PTZ PRESET');
 		}
-		request(`${BASEURI}/cgi-bin/ptz.cgi?action=start&channel=0&code=GotoPreset&arg1=0&arg2=${preset}&arg3=0`, (error, response, body) => {
-			if ((error) || (response.statusCode !== 200) || (body.trim() !== 'OK')) {
-				this.emit('error', 'FAILED TO ISSUE PTZ PRESET');
-			}
-		})
+
+		return this.ptzCommand('GotoPreset', 0, preset, 0, 0);
 	}
 
 	// PTZ Zoom - multiplier
@@ -105,14 +119,7 @@ class HikvisionAPI extends events.EventEmitter {
 			return 0;
 		}
 
-		request(`${BASEURI}/cgi-bin/ptz.cgi?action=start&channel=0&code=${cmd}&arg1=0&arg2=${multiple}&arg3=0`, (error, response, body) => {
-			if ((error) || (response.statusCode !== 200) || (body.trim() !== 'OK')) {
-				if (TRACE) {
-					console.log('FAILED TO ISSUE PTZ ZOOM');
-				}
-				this.emit('error', 'FAILED TO ISSUE PTZ ZOOM');
-			}
-		})
+		return this.ptzCommand(cmd, 0, multiple, 0, 0);
 	}
 
 	// PTZ Move - direction/action/speed
@@ -121,90 +128,88 @@ class HikvisionAPI extends events.EventEmitter {
 			this.handleError('INVALID PTZ SPEED');
 		}
 		if ((action !== 'start') || (action !== 'stop')) {
-			this.handleError('INVALID PTZ COMMAND')
-			return 0
+			const err = 'INVALID PTZ COMMAND';
+			this.handleError(err);
+			return Promise.reject(err);
 		}
-		if ((direction !== 'Up') || (direction !== 'Down') || (direction !== 'Left') || (direction !== 'Right')
-			(direction !== 'LeftUp') || (direction !== 'RightUp') || (direction !== 'LeftDown') || (direction !== 'RightDown')) {
-			this.emit('error', `INVALID PTZ DIRECTION: ${direction}`)
+		const availableDirections = [
+			'Up','Down','Left','Right',
+			'LeftUp','RightUp','LeftDown','RightDown'
+		];
+		if (!availableDirections.contains(direction)) {
+			const err = `INVALID PTZ DIRECTION: ${direction}`;
+			this.emit('error', err);
 			if (TRACE) {
-				console.log(`INVALID PTZ DIRECTION: ${direction}`);
+				console.log(err);
 			}
-			return 0
+			return Promise.reject(err);
 		}
-		request(`${BASEURI}/cgi-bin/ptz.cgi?action=${action}&channel=0&code=${direction}&arg1=${speed}&arg2=${speed}&arg3=0`, (error, response, body) => {
-			if ((error) || (response.statusCode !== 200) || (body.trim() !== 'OK')) {
-				this.emit('error', 'FAILED TO ISSUE PTZ UP COMMAND');
-				if (TRACE) {
-					console.log('FAILED TO ISSUE PTZ UP COMMAND');
-				}
-			}
-		})
+
+		return this.ptzCommand(direction, speed, speed, 0, 0);
 	}
 
 	// Request PTZ Status
 	ptzStatus() {
-		request(`${BASEURI}/cgi-bin/ptz.cgi?action=getStatus`, (error, response, body) => {
-			if ((!error) && (response.statusCode === 200)) {
+		this.request(this.POINT.PTZ, {action: 'getStatus'})
+			.then((error, response, body) => {
 				body = body.toString().split('\r\n').trim()
 				if (TRACE) {
 					console.log(`PTZ STATUS: ${body}`);
 				}
 				this.emit('ptzStatus', body);
-			} else {
+			})
+			.catch((err) => {
 				this.emit('error', 'FAILED TO QUERY STATUS');
 				if (TRACE) {
 					console.log('FAILED TO QUERY STATUS');
 				}
-
-			}
-		})
+			});
 	}
 
 	// Switch to Day Profile
 	dayProfile() {
-		request(`${BASEURI}/cgi-bin/configManager.cgi?action=setConfig&VideoInMode[0].Config[0]=1`, (error, response, body) => {
-			if ((!error) && (response.statusCode === 200)) {
-				if (body === 'Error') {		// Didnt work, lets try another method for older cameras
-					request(`${BASEURI}/cgi-bin/configManager.cgi?action=setConfig&VideoInOptions[0].NightOptions.SwitchMode=0`, (error, response, body) => {
-						if ((error) || (response.statusCode !== 200)) {
-							this.emit('error', 'FAILED TO CHANGE TO DAY PROFILE');
-							if (TRACE) {
-								console.log('FAILED TO CHANGE TO DAY PROFILE');
-							}
-						}
-					})
+		this.request(this.POINT.CONFIG_MANAGER, {
+				action: 'setConfig',
+				'VideoInMode[0].Config[0]': 1
+			})
+			.then((responseBody) => {
+				// Didnt work, lets try another method for older cameras
+				if (body === 'Error') {
+					return this.request(this.POINT.CONFIG_MANAGER, {
+						action: 'setConfig',
+						'VideoInOptions[0].NightOptions.SwitchMode': 0
+					});
 				}
-			} else {
+			})
+			.catch((err) => {
 				this.emit('error', 'FAILED TO CHANGE TO DAY PROFILE');
 				if (TRACE) {
 					console.log('FAILED TO CHANGE TO DAY PROFILE');
 				}
-			}
-		})
+			});
 	}
 
 	// Switch to Night Profile
 	nightProfile() {
-		request(`${BASEURI}/cgi-bin/configManager.cgi?action=setConfig&VideoInMode[0].Config[0]=2`, (error, response, body) => {
-			if ((!error) && (response.statusCode === 200)) {
-				if (body === 'Error') {		// Didnt work, lets try another method for older cameras
-					request(`${BASEURI}/cgi-bin/configManager.cgi?action=setConfig&VideoInOptions[0].NightOptions.SwitchMode=3`, (error, response, body) => {
-						if ((error) || (response.statusCode !== 200)) {
-							this.emit('error', 'FAILED TO CHANGE TO NIGHT PROFILE');
-							if (TRACE) {
-								console.log('FAILED TO CHANGE TO NIGHT PROFILE');
-							}
-						}
-					})
+		this.request(this.POINT.CONFIG_MANAGER, {
+			action: 'setConfig',
+			'VideoInMode[0].Config[0]': 2
+		})
+			.then((responseBody) => {
+				// Didnt work, lets try another method for older cameras
+				if (body === 'Error') {
+					return this.request(this.POINT.CONFIG_MANAGER, {
+						action: 'setConfig',
+						'VideoInOptions[0].NightOptions.SwitchMode': 3
+					});
 				}
-			} else {
+			})
+			.catch((err) => {
 				this.emit('error', 'FAILED TO CHANGE TO NIGHT PROFILE');
 				if (TRACE) {
 					console.log('FAILED TO CHANGE TO NIGHT PROFILE');
 				}
-			}
-		})
+			});
 	}
 
 	handleError(err) {
@@ -256,7 +261,7 @@ class HikvisionAPI extends events.EventEmitter {
 							}
 						}
 						this.activeEvents = {};
-						this.triggerActive = false
+						this.triggerActive = false;
 
 					} else {
 						// should be the most common result
@@ -270,14 +275,14 @@ class HikvisionAPI extends events.EventEmitter {
 				// if the first instance of an eventIdentifier, lets emit it,
 				// add to activeEvents and set triggerActive
 				else if (typeof this.activeEvents[eventIdentifier] == 'undefined' || this.activeEvents[eventIdentifier] == null) {
-					var eventDetails = {}
-					eventDetails['code'] = code
-					eventDetails['index'] = index
+					var eventDetails = {};
+					eventDetails['code'] = code;
+					eventDetails['index'] = index;
 					eventDetails['lasttimestamp'] = Date.now();
 
-					this.activeEvents[eventIdentifier] = eventDetails
+					this.activeEvents[eventIdentifier] = eventDetails;
 					this.emit('alarm', code, action, index);
-					this.triggerActive = true
+					this.triggerActive = true;
 
 					// known active events
 				} else {
@@ -286,17 +291,17 @@ class HikvisionAPI extends events.EventEmitter {
 					}
 
 					// Update lasttimestamp
-					var eventDetails = {}
-					eventDetails['code'] = code
-					eventDetails['index'] = index
+					var eventDetails = {};
+					eventDetails['code'] = code;
+					eventDetails['index'] = index;
 					eventDetails['lasttimestamp'] = Date.now();
-					this.activeEvents[eventIdentifier] = eventDetails
+					this.activeEvents[eventIdentifier] = eventDetails;
 
 					// step through activeEvents
 					// if we haven't seen it in more than 2 seconds, lets end it and remove from activeEvents
 					for (var i in this.activeEvents) {
 						if (this.activeEvents.hasOwnProperty(i)) {
-							var eventDetails = this.activeEvents[i]
+							var eventDetails = this.activeEvents[i];
 							if (((Date.now() - eventDetails['lasttimestamp']) / 1000) > 2) {
 								if (TRACE) {
 									console.log(`    Ending Event: ${i} - ${eventDetails['code']} - ${(Date.now() - eventDetails['lasttimestamp']) / 1000}`);
@@ -308,6 +313,22 @@ class HikvisionAPI extends events.EventEmitter {
 					}
 				}
 			}
+		});
+	}
+
+	request(point, data) {
+		return new Promise((resolve, reject) => {
+			const params = Object.entries(data || {})
+				.map((...args) => args.map(encodeURIComponent).join('='))
+				.join('&');
+
+			request(`${BASEURI}${point}?${params}`, (error, response, body) => {
+				if ((!error) && (response.statusCode === 200)) {
+					resolve(body.toString());
+				} else {
+					reject(error || response);
+				}
+			})
 		});
 	}
 }
